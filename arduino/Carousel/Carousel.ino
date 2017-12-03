@@ -18,6 +18,7 @@ const int DIR_LEFT = HIGH;
 const int DIR_RIGHT = LOW;
 const int ZERO_FIX = 1;
 const int SLOTS = 10;
+const int MIN_HALF_WIDH = 3;
 
 void setup()
 {
@@ -99,10 +100,13 @@ void findZero()
   {
     oneStep(DIR_LEFT, DELAY_PER_STEP_SLOW);
     width++;
-    int val = digitalRead(pinZERO);
-    if (val == 0)
+    if (width > MIN_HALF_WIDH)
     {
-      break;
+      int val = digitalRead(pinZERO);
+      if (val == 0)
+      {
+        break;
+      }
     }
   }
   delay(SLOT_TIME);

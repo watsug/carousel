@@ -9,7 +9,7 @@ int pinEN  = 6;
 int pinPSAVE = 5;
 int pinZERO  = 2;
 
-const int DELAY_PER_STEP = 10;
+const int DELAY_PER_STEP = 15;
 const int DELAY_PER_STEP_SLOW = 35;
 const int STEPS_PER_SLOT = 20;
 const int MAX_STEPS = 200;

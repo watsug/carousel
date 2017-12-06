@@ -1,11 +1,15 @@
-int pinDIR = 13;
-int pinSTP = 12;
-int pinSLP = 11;
-int pinRST = 10;
-int pinM2  = 9;
-int pinM1  = 8;
-int pinM0  = 7;
-int pinEN  = 6;
+#include <PubSubClient.h>
+#include <Dhcp.h>
+#include <Dns.h>
+#include <Ethernet.h>
+#include <EthernetClient.h>
+#include <EthernetServer.h>
+#include <EthernetUdp.h>
+
+int pinDIR = 9;
+int pinSTP = 8;
+int pinSLP = 7;
+int pinRST = 6;
 int pinPSAVE = 5;
 int pinZERO  = 2;
 
@@ -20,6 +24,44 @@ const int ZERO_FIX = 1;
 const int SLOTS = 10;
 const int MIN_HALF_WIDH = 3;
 
+boolean mqttConnected = false;
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEE };
+
+EthernetClient ethClient;
+PubSubClient client(ethClient);
+
+void messageReceived(const char* topic, byte* payload, unsigned int length)
+{
+  if (length != 2)
+  {
+    Serial.println("Invalid packet"); 
+  }
+
+  if (payload[0] == 120)
+  {
+    Serial.println("Set card position" + payload[1]); 
+    setCard(payload[1]);
+  }
+  
+  if (payload[0] == 125)
+  {
+    Serial.println("Calirating carousel...");
+    findZero();
+  }
+
+  if (payload[0] == 130)
+  {
+    Serial.println("Turn off motor");
+    digitalWrite(pinSLP, LOW);
+  }
+
+  if (payload[0] == 135)
+  {
+    Serial.println("Turn on motor");
+    digitalWrite(pinSLP, HIGH);
+  }
+}
+
 void setup()
 {
   pinMode(pinDIR, OUTPUT);
@@ -27,10 +69,6 @@ void setup()
   pinMode(pinSLP, OUTPUT);
   pinMode(pinRST, OUTPUT);
 
-  pinMode(pinM2, OUTPUT);
-  pinMode(pinM1, OUTPUT);
-  pinMode(pinM0, OUTPUT);
-  pinMode(pinEN, OUTPUT);
   pinMode(pinPSAVE, OUTPUT);
 
   pinMode(pinZERO, INPUT);
@@ -38,16 +76,40 @@ void setup()
   // DVR8825 setup
   digitalWrite(pinSLP, HIGH);
   digitalWrite(pinRST, HIGH);
-  digitalWrite(pinEN,  LOW);
   digitalWrite(pinPSAVE,  HIGH);
-
-  // resoulution setup - 32 sub-steps
-  digitalWrite(pinM2, LOW);
-  digitalWrite(pinM1, LOW);
-  digitalWrite(pinM0, LOW);
 
   // direction setup
   digitalWrite(pinDIR, DIR_LEFT);
+
+  // configure serial
+  Serial.begin(9600);  
+  Serial.println("Loading...");
+
+  // configure ethernet
+  if (Ethernet.begin(mac) == 0) {
+  Serial.println("Failed to configure Ethernet using DHCP");
+  // no point in carrying on, so do nothing forevermore:
+  for(;;)
+    ;
+}
+  Serial.println(Ethernet.localIP());
+
+  // configure Mqtt
+  Serial.println("Connecting...");
+  client.setServer("10.239.71.133",1883);
+  // mqttConnected = client.connect("carouselClient1");
+  // if (mqttConnected)
+  //{
+  // Serial.println("Connected");
+  //}
+  //else
+  //{
+  //  Serial.println("Disconnected");
+  //}
+  
+  client.setCallback(messageReceived);
+  Serial.println("Initialized");
+  findZero();
 }
 
 void powerSave(int mode)
@@ -119,7 +181,6 @@ void findZero()
 void setCard(int slotNumber)
 {
   int sN = slotNumber <= 0 ? 1 : (slotNumber > SLOTS ? SLOTS : slotNumber);
-  findZero();
   powerSave(0);
   for (int i=sN; i > 0; i--)
   {
@@ -130,6 +191,43 @@ void setCard(int slotNumber)
 
 void loop()
 {
-  setCard(random(1, 10));
-  delay(15000);
+  //setCard(random(1, 10));
+  // delay(15000);
+  if (!client.connected()) {
+    reconnect();
+  }
+client.loop();  
+  client.loop();
 }
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ArduinoMegaCarousel-";
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (client.connect(clientId.c_str())) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      //client.publish("outTopic", "hello world");
+      // ... and resubscribe
+      if (client.subscribe("/ifs/carousel", 1))
+      {
+        Serial.println("Subscribed");
+      }
+      else
+      {
+        Serial.println("Failed to subscribe");
+      }
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+

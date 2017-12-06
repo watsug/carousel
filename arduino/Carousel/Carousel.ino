@@ -23,8 +23,11 @@ const int DIR_RIGHT = LOW;
 const int ZERO_FIX = 1;
 const int SLOTS = 10;
 const int MIN_HALF_WIDH = 3;
+const char* ACTION_TOPIC = "/ifs/carousel/action";
+const char* STATUS_TOPIC = "/ifs/carousel/status";
+const char* SERVER_IP = "10.239.71.133";
 
-boolean mqttConnected = false;
+int currentPosition = 0;
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEE };
 
 EthernetClient ethClient;
@@ -39,13 +42,13 @@ void messageReceived(const char* topic, byte* payload, unsigned int length)
 
   if (payload[0] == 120)
   {
-    Serial.println("Set card position" + payload[1]); 
+    Serial.println("Set card position" + String(payload[1])); 
     setCard(payload[1]);
   }
   
   if (payload[0] == 125)
   {
-    Serial.println("Calirating carousel...");
+    Serial.println("Calibrating carousel...");
     findZero();
   }
 
@@ -60,6 +63,10 @@ void messageReceived(const char* topic, byte* payload, unsigned int length)
     Serial.println("Turn on motor");
     digitalWrite(pinSLP, HIGH);
   }
+
+  byte response[1];
+  response[0] = 250;
+  client.publish(STATUS_TOPIC, response);
 }
 
 void setup()
@@ -96,17 +103,7 @@ void setup()
 
   // configure Mqtt
   Serial.println("Connecting...");
-  client.setServer("10.239.71.133",1883);
-  // mqttConnected = client.connect("carouselClient1");
-  // if (mqttConnected)
-  //{
-  // Serial.println("Connected");
-  //}
-  //else
-  //{
-  //  Serial.println("Disconnected");
-  //}
-  
+  client.setServer(SERVER_IP,1883);  
   client.setCallback(messageReceived);
   Serial.println("Initialized");
   findZero();
@@ -176,23 +173,53 @@ void findZero()
   delay(SLOT_TIME);
 
   powerSave(1);
+  currentPosition = 1;
 }
 
 void setCard(int slotNumber)
 {
-  int sN = slotNumber <= 0 ? 1 : (slotNumber > SLOTS ? SLOTS : slotNumber);
+  int direction,rightSteps,leftSteps,sN;
+
+  if (currentPosition == slotNumber)
+  {
+    return;
+  }
+
+  if (currentPosition < slotNumber)
+  {
+    rightSteps = slotNumber - currentPosition;
+    leftSteps = SLOTS - rightSteps;
+  }
+
+  if (currentPosition > slotNumber)
+  {
+    leftSteps = currentPosition - slotNumber;
+    rightSteps = SLOTS - leftSteps;
+  }  
+
+  if (rightSteps <= leftSteps)
+  {
+    sN = rightSteps;
+    direction = DIR_RIGHT;
+  }
+  else
+  {
+    sN = leftSteps;
+    direction = DIR_LEFT;      
+  }
+  
   powerSave(0);
   for (int i=sN; i > 0; i--)
   {
-    advance(STEPS_PER_SLOT, DIR_LEFT, DELAY_PER_STEP);
+    advance(STEPS_PER_SLOT, direction, DELAY_PER_STEP);
   }
   powerSave(1);
+
+  currentPosition = slotNumber;
 }
 
 void loop()
 {
-  //setCard(random(1, 10));
-  // delay(15000);
   if (!client.connected()) {
     reconnect();
   }
@@ -210,17 +237,14 @@ void reconnect() {
     // Attempt to connect
     if (client.connect(clientId.c_str())) {
       Serial.println("connected");
-      // Once connected, publish an announcement...
-      //client.publish("outTopic", "hello world");
-      // ... and resubscribe
-      if (client.subscribe("/ifs/carousel", 1))
+      if (client.subscribe(ACTION_TOPIC, 1))
       {
-        Serial.println("Subscribed");
+        Serial.println("Subscribed action topic");
       }
       else
       {
-        Serial.println("Failed to subscribe");
-      }
+        Serial.println("Failed to subscribe action topic");
+      }    
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());

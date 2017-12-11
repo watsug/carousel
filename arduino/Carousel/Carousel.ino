@@ -5,6 +5,10 @@
 #include <EthernetClient.h>
 #include <EthernetServer.h>
 #include <EthernetUdp.h>
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd(0x27,16,2); // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 int pinDIR = 9;
 int pinSTP = 8;
@@ -33,40 +37,63 @@ byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEE };
 EthernetClient ethClient;
 PubSubClient client(ethClient);
 
+void writeLcdStandby()
+{
+  lcd.clear();
+  lcd.home();
+  lcd.print(">");
+  lcd.print(SERVER_IP);
+  lcd.setCursor(0,1);  
+  lcd.print("Card position:");
+  lcd.print(String(currentPosition + 1)); 
+}
+
 void messageReceived(const char* topic, byte* payload, unsigned int length)
 {
+  lcd.clear();
+  lcd.home();
   if (length != 2)
   {
-    Serial.println("Invalid packet"); 
+    lcd.print("Invalid packet"); 
+    delay(5000);
   }
 
   if (payload[0] == 120)
   {
-    Serial.println("Set card position" + String(payload[1])); 
-    setCard(payload[1]);
+    if (payload[1] < 0x01 || payload[1] > 0x0A)
+    {
+        lcd.print("Invalid packet"); 
+        delay(1000);
+    }
+    else
+    {
+     setCard(payload[1]-1); 
+    }
   }
   
   if (payload[0] == 125)
   {
-    Serial.println("Calibrating carousel...");
     findZero();
   }
 
   if (payload[0] == 130)
   {
-    Serial.println("Turn off motor");
+    lcd.print("Turn off motor");
     digitalWrite(pinSLP, LOW);
+    delay(1000);
   }
 
   if (payload[0] == 135)
   {
-    Serial.println("Turn on motor");
+    lcd.print("Turn on motor");
     digitalWrite(pinSLP, HIGH);
+    delay(1000);
   }
 
   byte response[1];
   response[0] = 250;
   client.publish(STATUS_TOPIC, response);
+  writeLcdStandby();
 }
 
 void setup()
@@ -90,22 +117,27 @@ void setup()
 
   // configure serial
   Serial.begin(9600);  
-  Serial.println("Loading...");
+
+  // initialize display
+  lcd.init();
+  lcd.backlight(); 
+  lcd.home();
+  lcd.print("DHCP ...");  
+  lcd.setCursor(0,1);  
 
   // configure ethernet
   if (Ethernet.begin(mac) == 0) {
-  Serial.println("Failed to configure Ethernet using DHCP");
+  lcd.print("Failed");   
   // no point in carrying on, so do nothing forevermore:
   for(;;)
     ;
 }
-  Serial.println(Ethernet.localIP());
+  lcd.print(Ethernet.localIP());
+  delay(5000);
 
   // configure Mqtt
-  Serial.println("Connecting...");
   client.setServer(SERVER_IP,1883);  
   client.setCallback(messageReceived);
-  Serial.println("Initialized");
   findZero();
 }
 
@@ -133,6 +165,11 @@ void advance(int steps, int dir, int dps)
 
 void findZero()
 {
+  lcd.clear();
+  lcd.home();  
+  lcd.print("Calibrating");
+  lcd.setCursor(0,1);  
+  lcd.print("     carousel...");  
   powerSave(0);
   for (int i=MAX_STEPS; i > 0; i--)
   {
@@ -173,11 +210,16 @@ void findZero()
   delay(SLOT_TIME);
 
   powerSave(1);
-  currentPosition = 1;
+  currentPosition = 0;
 }
 
 void setCard(int slotNumber)
 {
+  lcd.clear();
+  lcd.home();  
+  lcd.print("Set"); 
+  lcd.setCursor(0,1);  
+  lcd.print("card position:" + String(slotNumber+1)); 
   int direction,rightSteps,leftSteps,sN;
 
   if (currentPosition == slotNumber)
@@ -223,35 +265,51 @@ void loop()
   if (!client.connected()) {
     reconnect();
   }
-client.loop();  
-  client.loop();
+  client.loop();  
 }
 
 void reconnect() {
   // Loop until we're reconnected
+  lcd.clear();
+  lcd.home();
+  lcd.print("Conn. to MQTT:");    
+  lcd.setCursor(0,1);
+  lcd.print(">");
+  lcd.print(SERVER_IP);
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
     // Create a random client ID
     String clientId = "ArduinoMegaCarousel-";
     clientId += String(random(0xffff), HEX);
     // Attempt to connect
     if (client.connect(clientId.c_str())) {
-      Serial.println("connected");
+      lcd.clear();
+      lcd.home();
+      lcd.print("Sub. to topic:");  
+      lcd.setCursor(0,1);
+      lcd.print(ACTION_TOPIC);   
       if (client.subscribe(ACTION_TOPIC, 1))
       {
         Serial.println("Subscribed action topic");
       }
       else
       {
-        Serial.println("Failed to subscribe action topic");
+        lcd.clear();
+        lcd.home();
+        lcd.print("Failed to sub.");          
+        lcd.setCursor(0,1);
+        lcd.print(ACTION_TOPIC); 
+        while (1) { }
       }    
     } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
+      lcd.clear();
+      lcd.home();
+      lcd.print("Connect failed");    \
+      lcd.setCursor(0,1);  
+      lcd.print("again in 5 sec.");
       // Wait 5 seconds before retrying
       delay(5000);
     }
   }
+  writeLcdStandby();
 }
 
